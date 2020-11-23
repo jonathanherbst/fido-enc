@@ -45,11 +45,13 @@ class CipherData:
         return ((a << 8) | (b & 0xFF)) & 0xFFFF
 
     @classmethod
-    def pack_id(cls, cred_id, salt):
+    def pack_id(cls, dev_id, cred_id, salt):
         packer = xdrlib.Packer()
 
         # magic
         packer.pack_uint(cls.SALT_MAGIC)
+        # device id
+        packer.pack_bytes(dev_id)
         # credential id
         packer.pack_bytes(cred_id)
         # salt
@@ -66,12 +68,13 @@ class CipherData:
         unpacker = xdrlib.Unpacker(buf)
         # check the magic
         if cls.SALT_MAGIC == unpacker.unpack_uint():
+            dev_id = unpacker.unpack_bytes()
             cred_id = unpacker.unpack_bytes()
             salt = unpacker.unpack_bytes()
             cksum = unpacker.unpack_uint()
             # check the checksum
             if cksum == cls.checksum(buf[:len(buf) - 4]):
-                return (cred_id, salt)
+                return (dev_id, cred_id, salt)
         raise AttributeError("buffer is not a packed id")
 
     @classmethod
@@ -175,6 +178,7 @@ class PackKey(threading.Thread):
         except:
             return
         credential = attestation_object.auth_data.credential_data
+        dev_id = self._client.info.aaguid
         cred_id = credential.credential_id
 
         with self._state as state:
@@ -194,7 +198,7 @@ class PackKey(threading.Thread):
             if assertions:
                 # make a key and encrypt it with the secret
                 secret = hmac_ext.results_for(assertions[0].auth_data)[0]
-                packed_id = CipherData.pack_id(cred_id, salt)
+                packed_id = CipherData.pack_id(dev_id, cred_id, salt)
                 if self._key:
                     key = self._key
                     packed_key = CipherData.pack_key(secret, key)
@@ -256,9 +260,9 @@ def create(id_path, key_path):
     return None
 
 def unpack(id_path, key_path):
-    id_data = CipherData.unpack_id(open(id_path, 'rb').read())
+    dev_id, *id_data = CipherData.unpack_id(open(id_path, 'rb').read())
     state = State()
-    runners = [UnpackKey(state, c, id_data, key_path) for c in enumerate_hmac_fido_devices()]
+    runners = [UnpackKey(state, c, id_data, key_path) for c in enumerate_hmac_fido_devices() if c.info.aaguid == dev_id]
     run_runners(runners)
 
     if state.data:
