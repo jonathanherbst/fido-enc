@@ -5,6 +5,7 @@ from fido2.extensions import HmacSecretExtension
 
 from cryptography.fernet import Fernet
 
+import argparse
 import base64
 import binascii
 import os
@@ -12,6 +13,7 @@ import random
 import string
 import sys
 import threading
+import traceback
 import uuid
 import xdrlib
 
@@ -249,7 +251,7 @@ def run_runners(runners):
     for r in runners:
         r.join()
 
-def create(id_path, key_path):
+def do_create(id_path, key_path):
     state = State()
     runners = [PackKey(state, c, id_path, key_path) for c in enumerate_hmac_fido_devices()]
     print("Touch the device fido key you want to use to create 2x")
@@ -259,7 +261,10 @@ def create(id_path, key_path):
         return state.data['key']
     return None
 
-def unpack(id_path, key_path):
+def create(args):
+    return do_create(*(args.id_path, args.key_path))
+
+def do_unpack(id_path, key_path):
     dev_id, *id_data = CipherData.unpack_id(open(id_path, 'rb').read())
     state = State()
     runners = [UnpackKey(state, c, id_data, key_path) for c in enumerate_hmac_fido_devices() if c.info.aaguid == dev_id]
@@ -269,8 +274,11 @@ def unpack(id_path, key_path):
         return state.data['key']
     return None
 
-def repack(id_path_in, key_path_in, id_path_out, key_path_out):
-    key = unpack(id_path_in, key_path_in)
+def unpack(args):
+    return do_unpack(*(args.id_path, args.key_path))
+
+def do_repack(id_path_in, key_path_in, id_path_out, key_path_out):
+    key = do_unpack(id_path_in, key_path_in)
 
     state = State()
     runners = [PackKey(state, c, id_path_out, key_path_out, key) for c in enumerate_hmac_fido_devices()]
@@ -281,6 +289,9 @@ def repack(id_path_in, key_path_in, id_path_out, key_path_out):
         return state.data['key']
     return None
 
+def repack(args):
+    return do_repack(*(args.id_path_in, args.key_path_in, args.id_path_out, args.key_path_out))
+
 def help_and_exit(code = 1):
     print("""Usage: %s create|unpack|repack <args>
     create <id_path> <key_path>
@@ -290,28 +301,32 @@ def help_and_exit(code = 1):
     sys.exit(code)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        help_and_exit()
+    arg_parser = argparse.ArgumentParser(description="Encrypt and decrypt a key using fido2 devices.")
+    subparsers = arg_parser.add_subparsers(required=True, dest="subparser_name")
 
-    action = sys.argv[1]
-    if "create" == action:
-        if len(sys.argv) != 4:
-            help_and_exit()
-        
-        id_path, key_path = sys.argv[2:]
-        key = create(id_path, key_path)
-    elif "unpack" == action:
-        if len(sys.argv) != 4:
-            help_and_exit()
-        
-        id_path, key_path = sys.argv[2:]
-        key = unpack(id_path, key_path)
-        print(binascii.b2a_hex(key).decode('utf-8'))
-    elif "repack" == action:
-        if len(sys.argv) != 6:
-            help_and_exit()
-        
-        id_path_in, key_path_in, id_path_out, key_path_out = sys.argv[2:]
-        key = repack(id_path_in, key_path_in, id_path_out, key_path_out)
-    else:
-        help_and_exit()
+    # create parameters
+    parser_create = subparsers.add_parser('create', help="create a new encrypted key using a fido device")
+    parser_create.add_argument('id_path', type=str, help="path to write id file to")
+    parser_create.add_argument('key_path', type=str, help="path to write encrypted key to")
+    parser_create.set_defaults(func=create)
+
+    # unpack parameters
+    parser_unpack = subparsers.add_parser('unpack', help="unpack an existing key using a fido device")
+    parser_unpack.add_argument('id_path', type=str, help="path to existing id file")
+    parser_unpack.add_argument('key_path', type=str, help="path to existing encrypted key")
+    parser_unpack.set_defaults(func=unpack)
+
+    # repack parameters
+    parser_repack = subparsers.add_parser('repack', help="repack an existing key using a new fido device")
+    parser_repack.add_argument('id_path_in', type=str, help="path to existing id file")
+    parser_repack.add_argument('key_path_in', type=str, help="path to existing key file")
+    parser_repack.add_argument('id_path_out', type=str, help="path to write the repacked id to")
+    parser_repack.add_argument('key_path_out', type=str, help="path to write the repacked key to")
+    parser_repack.set_defaults(func=repack)
+
+    try:
+        args = arg_parser.parse_args()
+        args.func(args)
+    except TypeError:
+        arg_parser.print_help()
+        sys.exit(1)
