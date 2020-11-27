@@ -292,14 +292,6 @@ def do_repack(id_path_in, key_path_in, id_path_out, key_path_out):
 def repack(args):
     return do_repack(*(args.id_path_in, args.key_path_in, args.id_path_out, args.key_path_out))
 
-def help_and_exit(code = 1):
-    print("""Usage: %s create|unpack|repack <args>
-    create <id_path> <key_path>
-    unpack <id_path> <key_path>
-    repack <id_path_in> <key_path_in> <id_path_out> <key_path_out>""" % sys.argv[0]
-    )
-    sys.exit(code)
-
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(description="Encrypt and decrypt a key using fido2 devices.")
     subparsers = arg_parser.add_subparsers(required=True, dest="subparser_name")
